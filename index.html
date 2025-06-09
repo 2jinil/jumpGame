@@ -106,11 +106,17 @@
       pillars.forEach(p => ctx.fillRect(p.x, p.y, p.width, p.height));
 
       if ((isTouching || spacebarHeld) && player.onGround) {
-        ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
-        ctx.strokeRect(20, 60, 150, 20);
+        const gaugeWidth = 150, gaugeHeight = 20;
+        const gaugeX = player.x + player.width / 2 - gaugeWidth / 2;
+        const gaugeY = player.y - 30;
+
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+
         ctx.fillStyle = '#4CAF50';
-        const fill = Math.min(150, 150 * (currentTouchDuration / MAX_DURATION));
-        ctx.fillRect(20, 60, fill, 20);
+        const fill = Math.min(gaugeWidth, gaugeWidth * (currentTouchDuration / MAX_DURATION));
+        ctx.fillRect(gaugeX, gaugeY, fill, gaugeHeight);
       }
     }
 
