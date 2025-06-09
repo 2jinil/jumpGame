@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>점프 게임</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden;
+      display: flex; justify-content: center; align-items: center;
+      background-color: #f0f4f8; font-family: 'Inter', sans-serif;
+    }
+    .game-container {
+      width: 100%; height: 100%; max-width: calc(100vh * (9 / 16)); max-height: calc(100vw * (16 / 9));
+      aspect-ratio: 9 / 16; position: relative; display: flex; flex-direction: column;
+      justify-content: center; align-items: center; background-color: #fff;
+      border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    }
+    canvas {
+      background-color: #87ceeb; display: block; border-radius: 10px;
+      width: 100%; height: 100%; object-fit: contain;
+    }
+    .score-board, .game-over-message, .restart-button {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      z-index: 10; font-weight: bold; white-space: nowrap;
+    }
+    .score-board {
+      top: 20px; font-size: 1.8rem; color: #333;
+      background-color: rgba(255,255,255,0.8); padding: 5px 15px; border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .game-over-message {
+      top: 50%; transform: translate(-50%, -50%); font-size: 2.5rem; color: #ef4444;
+      background-color: rgba(255,255,255,0.9); padding: 20px 40px; border-radius: 15px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2); text-align: center;
+    }
+    .restart-button {
+      top: calc(50% + 80px); background-color: #4CAF50; color: white;
+      padding: 12px 25px; border: none; border-radius: 10px;
+      font-size: 1.2rem; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .restart-button:hover { background-color: #45a049; }
+    .restart-button:active { box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="game-container">
+    <canvas id="gameCanvas"></canvas>
+    <div id="scoreBoard" class="score-board">점수: 0</div>
+    <div id="gameOverMessage" class="game-over-message hidden">게임 오버!</div>
+    <button id="restartButton" class="restart-button hidden">다시 시작</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreBoard = document.getElementById('scoreBoard');
+    const gameOverMessage = document.getElementById('gameOverMessage');
+    const restartButton = document.getElementById('restartButton');
+
+    const GAME_WIDTH = 375, GAME_HEIGHT = 667;
+    canvas.width = GAME_WIDTH;
+    canvas.height = GAME_HEIGHT;
+
+    let GRAVITY = 0.8,
+        MIN_JUMP = -10,
+        MAX_JUMP = -30,
+        player = {},
+        pillars = [],
+        score = 0,
+        gameOver = false,
+        animationFrameId = null,
+        touchStartTime = 0,
+        isTouching = false,
+        currentTouchDuration = 0,
+        spacebarHeld = false,
+        spacebarStartTime = 0;
+
+    const JUMP_THRESHOLD = 100,
+          MAX_DURATION = 800,
+          PILLAR_SPEED = 5,
+          GROUND_Y = 50;
+
+    function initGame() {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      player = {
+        x: 50, width: 40, height: 40, vy: 0,
+        y: GAME_HEIGHT - GROUND_Y - 60, onGround: true, hasJumped: false
+      };
+      pillars = [{x: player.x, y: player.y + player.height, width: 80, height: 60, scored: true}];
+      score = 0; gameOver = false;
+      scoreBoard.textContent = `점수: ${score}`;
+      gameOverMessage.classList.add('hidden');
+      restartButton.classList.add('hidden');
+      gameLoop();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#ff6b6b';
+      ctx.fillRect(player.x, player.y, player.width, player.height);
+      ctx.fillStyle = '#28a745';
+      pillars.forEach(p => ctx.fillRect(p.x, p.y, p.width, p.height));
+
+      if ((isTouching || spacebarHeld) && player.onGround) {
+        const gaugeWidth = 150, gaugeHeight = 20;
+        const gaugeX = player.x + player.width / 2 - gaugeWidth / 2;
+        const gaugeY = player.y - 30;
+
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+
+        ctx.fillStyle = '#4CAF50';
+        const fill = Math.min(gaugeWidth, gaugeWidth * (currentTouchDuration / MAX_DURATION));
+        ctx.fillRect(gaugeX, gaugeY, fill, gaugeHeight);
+      }
+    }
+
+    function update() {
+      if (gameOver) return;
+
+      player.vy += GRAVITY;
+      player.y += player.vy;
+      player.onGround = false;
+
+      for (const p of pillars) {
+        if (player.x < p.x + p.width && player.x + player.width > p.x) {
+          if (player.vy >= 0 && player.y + player.height >= p.y - 20 && player.y + player.height <= p.y + 20) {
+            player.y = p.y - player.height;
+            player.vy = 0;
+            player.onGround = true;
+            player.hasJumped = false;
+            if (!p.scored) { score++; scoreBoard.textContent = `점수: ${score}`; p.scored = true; }
+          }
+        }
+      }
+
+      if (!player.onGround && player.y + player.height > GAME_HEIGHT - GROUND_Y + 10) setGameOver();
+
+      if (!player.onGround) pillars.forEach(p => p.x -= PILLAR_SPEED);
+      pillars = pillars.filter(p => p.x + p.width > 0);
+      if (pillars.length < 5 || (pillars.length && pillars[pillars.length-1].x < GAME_WIDTH + 300))
+        generatePillar();
+    }
+
+    function generatePillar() {
+      const last = pillars[pillars.length - 1];
+      const gap = 120 + Math.random() * 130; // gap between 120 and 250
+      const height = Math.random() * 200 + 50;
+      const y = GAME_HEIGHT - GROUND_Y - height;
+      pillars.push({x: last.x + last.width + gap, y, width: 60, height, scored: false});
+    }
+
+    function gameLoop() {
+      if (isTouching) currentTouchDuration = performance.now() - touchStartTime;
+      else if (spacebarHeld) currentTouchDuration = performance.now() - spacebarStartTime;
+      else currentTouchDuration = 0;
+
+      update(); draw();
+      animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function setGameOver() {
+      gameOver = true;
+      cancelAnimationFrame(animationFrameId);
+      gameOverMessage.classList.remove('hidden');
+      restartButton.classList.remove('hidden');
+    }
+
+    canvas.addEventListener('touchstart', (e) => {
+      if (gameOver) return;
+      touchStartTime = performance.now();
+      isTouching = true;
+      e.preventDefault();
+    });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (gameOver || !isTouching) return;
+      const duration = performance.now() - touchStartTime;
+      if (duration >= JUMP_THRESHOLD && player.onGround) {
+        const strength = Math.min(1, Math.max(0, (duration - JUMP_THRESHOLD) / (MAX_DURATION - JUMP_THRESHOLD)));
+        player.vy = MIN_JUMP + (MAX_JUMP - MIN_JUMP) * strength;
+        player.onGround = false; player.hasJumped = true;
+      }
+      isTouching = false;
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (gameOver) return;
+      if (e.code === 'Space' && player.onGround && !spacebarHeld) {
+        spacebarHeld = true;
+        spacebarStartTime = performance.now();
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (gameOver) return;
+      if (e.code === 'Space' && spacebarHeld && player.onGround) {
+        const duration = performance.now() - spacebarStartTime;
+        if (duration >= JUMP_THRESHOLD) {
+          const strength = Math.min(1, Math.max(0, (duration - JUMP_THRESHOLD) / (MAX_DURATION - JUMP_THRESHOLD)));
+          player.vy = MIN_JUMP + (MAX_JUMP - MIN_JUMP) * strength;
+          player.onGround = false; player.hasJumped = true;
+        }
+        spacebarHeld = false;
+      }
+    });
+
+    restartButton.addEventListener('click', initGame);
+    window.onload = initGame;
+  </script>
+</body>
+</html>
